@@ -17,7 +17,11 @@ public class VMWriter {
     }
     
     public void writeArithmetic(String command){
-        writeLine(command);
+        switch(command){
+            case "mult"-> writeLine("call Math.multiply 2");
+            case "div" -> writeLine("call Math.divide 2");
+            default->writeLine(command);
+        }
     }
         
     public void WriteLabel(String label){

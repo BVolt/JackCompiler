@@ -18,28 +18,28 @@ public class SymbolTable {
         subroutine = false;
     }
     
-    public void startSubroutine(int arg){
+    public void startSubroutine(){
         subTable.clear();
-        argIndex = arg;
+        argIndex = 0;
         varIndex = 0;
         subroutine = true;
     }
     
     public void Define(String name, String type, String kind){
         switch(kind){
-            case "STATIC"->{
+            case "static"->{
                 classTable.put(name, new Identifier(staticIndex, type, kind));
                 staticIndex++;
             }
-            case "FIELD"->{
+            case "field"->{
                 classTable.put(name, new Identifier(fieldIndex, type, kind));
                 fieldIndex++;
             }
-            case "ARG"-> {
+            case "argument"-> {
                 subTable.put(name, new Identifier(argIndex, type, kind));
                 argIndex++;
             }
-            case "VAR" -> {
+            case "var" -> {
                 subTable.put(name, new Identifier(varIndex, type, kind));
                 varIndex++;
             }
@@ -50,8 +50,8 @@ public class SymbolTable {
     public int VarCount(String kind){
         HashMap<String, Identifier> symbolTable = new HashMap();
         switch(kind){
-            case "STATIC", "FIELD"-> symbolTable = classTable;
-            case "ARG", "VAR" ->  symbolTable = subTable;
+            case "static", "field"-> symbolTable = classTable;
+            case "argument", "var" ->  symbolTable = subTable;
             default -> {}
         }
         int varCount = 0;
@@ -64,7 +64,7 @@ public class SymbolTable {
     }
     
     public String KindOf(String name){
-        if(subroutine) return subTable.get(name).getKind();
+        if(subroutine && subTable.get(name) != null) return subTable.get(name).getKind();
         else return classTable.get(name).getKind();
     }
     

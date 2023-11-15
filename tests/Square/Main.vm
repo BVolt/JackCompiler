@@ -1,5 +1,4 @@
 function Main.main 1
-push constant 0
 call SquareGame.new 0
 pop local 0
 push local 0

@@ -2,9 +2,8 @@ package com.mycompany.jackcompiler;
 import java.io.*;
 
 
-//Keep working on subroutinecall -> compileExpression() writeTerm();
-//Currently printing in too many situations
-
+//subroutine call pop temp? why line 89 call Keyboard.Pressed
+//arrays
 
 public class CompilationEngine {
     private JackTokenizer tokenizer;
@@ -13,6 +12,8 @@ public class CompilationEngine {
     private String className;
     private String currSubName;
     private boolean subScope;
+    private int ifLabelIndex = 0;
+    private int whileLabelIndex = 0;
     
     
     public CompilationEngine(BufferedReader iFile, BufferedWriter ofile){
@@ -45,13 +46,13 @@ public class CompilationEngine {
             type = tokenizer.keyWord();//type
             tokenizer.advance();
             name = tokenizer.identifier();//identifier
-            symTable.Define(name, type, kind.toUpperCase());
+            symTable.Define(name, type, kind);
             tokenizer.advance();
             while(tokenizer.symbol() == ','){
                 tokenizer.advance();  //,
                 name = tokenizer.identifier(); 
                 tokenizer.advance();
-                symTable.Define(name, type, kind.toUpperCase());
+                symTable.Define(name, type, kind);
             }
 
             tokenizer.advance();//;
@@ -59,14 +60,10 @@ public class CompilationEngine {
     
     
     public void CompileSubroutine() {
-        boolean isConstruct = false;
-        boolean isMethod = false;
-        if(tokenizer.keyWord().equals("method")) {symTable.startSubroutine(1); isMethod = true;}
-        else symTable.startSubroutine(0);
-        if(tokenizer.keyWord().equals("constructor")){
-            isConstruct = true;
-
-        }
+        ifLabelIndex = 0; whileLabelIndex = 0;
+        symTable.startSubroutine();
+        String funcType = tokenizer.keyWord();
+        if(funcType.equals("method")) {symTable.Define("this", className, "ARG");}
         tokenizer.advance(); //method or function or constructor
         tokenizer.advance(); // type
         currSubName = tokenizer.identifier();
@@ -78,41 +75,43 @@ public class CompilationEngine {
         while (tokenizer.keyWord().equals("var") ) {
             CompileVarDec();
         }
-        writer.WriteFunction(className + "." + currSubName, symTable.VarCount("VAR"));
-        if(!subScope){
-            writer.writePush("constant", symTable.VarCount("STATIC")+symTable.VarCount("FIELD"));
-            subScope = true;
-        }
-        if(isConstruct){
+        writer.WriteFunction(className + "." + currSubName, symTable.VarCount("var"));
+        if(funcType.equals("constructor")){
+            int classVarCnt = symTable.VarCount("static")+symTable.VarCount("field");
+            writer.writePush("constant", classVarCnt);
             writer.WriteCall("Memory.alloc", 1);
             writer.writePop("pointer", 0);
+//            for(int i = 0; i < classVarCnt;i++){
+//                writer.writePush("argument", i);
+//                writer.writePop("this", i);
+//            }
         }
-        if(isMethod){
-            writer.writePush("argument", 0);
-            writer.writePop("pointer", 0);
+        if(funcType.equals("method")){ //Pointer to class
+            writer.writePush("argument", 0); //Push this onto stack
+            writer.writePop("pointer", 0); 
         }
-        for(int i = 0; i < symTable.VarCount("ARG");i++){
-                writer.writePush("argument", i);
-                writer.writePop("this", i);
-        }
-        writer.writePush("pointer", 0);
+//        for(int i = 0; i < symTable.VarCount("ARG");i++){
+//                writer.writePush("argument", i);
+//                writer.writePop("this", i);
+//        }
+//        writer.writePush("pointer", 0);
         while(tokenizer.keyWord().equals("let") || tokenizer.keyWord().equals("if") || tokenizer.keyWord().equals("while") || tokenizer.keyWord().equals("do")){
             CompileStatements();
         }
         CompileReturn();
         tokenizer.advance();//}
+
     }
     
     public void CompileParameterList() {
         String name, type;
-        int args = 0;
         if (tokenizer.symbol() != ')') {
             while (tokenizer.keyWord().equals("int") || tokenizer.keyWord().equals("char") || tokenizer.keyWord().equals("boolean") || tokenizer.tokenType().equals("indentifier")) {
                 type = tokenizer.keyWord();
                 tokenizer.advance(); // type
                 name = tokenizer.identifier();
                 tokenizer.advance(); // identifier
-                symTable.Define(name, type, "ARG");
+                symTable.Define(name, type, "argument");
                 if (tokenizer.symbol() == ',') {
                     tokenizer.advance(); // ,
                 }
@@ -122,18 +121,17 @@ public class CompilationEngine {
     
     public void CompileVarDec(){
         String type, name;
-        String kind = "VAR";
         tokenizer.advance(); //var
         type = tokenizer.keyWord();
         tokenizer.advance(); //type
         name = tokenizer.identifier();
         tokenizer.advance(); //identifier
-        symTable.Define(name, type, kind.toUpperCase());
+        symTable.Define(name, type, "var");
         while(tokenizer.symbol() == ','){
             tokenizer.advance(); //,
             name = tokenizer.identifier();
             tokenizer.advance(); //identifier
-            symTable.Define(name, type, kind.toUpperCase());
+            symTable.Define(name, type, "var");
         }
         tokenizer.advance(); //;
     }
@@ -161,25 +159,44 @@ public class CompilationEngine {
     }
     
     public void CompileLet(){
-        while(tokenizer.symbol() != ';'){
-            if(tokenizer.symbol() == '[' || tokenizer.symbol() == '='){
-                tokenizer.advance(); // [ | =
-                CompileExpression();
-            }
-            else tokenizer.advance(); // let identifier
+        tokenizer.advance();//advance past let
+        String identifier = tokenizer.identifier();
+        String segment;
+        switch(symTable.KindOf(identifier)){
+            case "var" -> segment = "local";
+            case "field" ->segment = "this";
+            default -> segment = symTable.KindOf(identifier) ;
         }
-        tokenizer.advance(); //;
+        tokenizer.advance();// advance past identifier
+        if(tokenizer.symbol()== '['){
+            tokenizer.advance(); //Advance Past [
+            CompileExpression(); 
+            tokenizer.advance(); //Advance Past ]
+        }
+        tokenizer.advance();//advance past =
+        CompileExpression();
+        tokenizer.advance();//advnace past ;
+//        tokenizer.advance(); //;
         
+        writer.writePop(segment, symTable.IndexOf(identifier));
     }
     
     public void CompileWhile(){
+        int ind = whileLabelIndex;
+        whileLabelIndex++;
+        writer.WriteLabel("WHILE_EXP"+Integer.toString(ind));
         tokenizer.advance();//while
         tokenizer.advance(); // (
         CompileExpression();
         tokenizer.advance(); // )
+        writer.writeArithmetic("not");
+        writer.WriteIf("WHILE_END"+Integer.toString(ind));
         tokenizer.advance(); // {
         CompileStatements();
+        writer.WriteGoto("WHILE_EXP"+Integer.toString(ind));
         tokenizer.advance(); // }
+        writer.WriteLabel("WHILE_END"+Integer.toString(ind));
+        whileLabelIndex++;
     }
     
     public void CompileReturn(){
@@ -198,8 +215,11 @@ public class CompilationEngine {
         tokenizer.advance(); //if
         tokenizer.advance();//(
         CompileExpression(); //
+        writer.WriteIf("IF_TRUE"+Integer.toString(ifLabelIndex));
+        writer.WriteGoto("IF_FALSE"+Integer.toString(ifLabelIndex));
         tokenizer.advance();//)
         tokenizer.advance();//{
+        writer.WriteLabel("IF_TRUE"+Integer.toString(ifLabelIndex));
         CompileStatements();
         tokenizer.advance();//}
         if(tokenizer.keyWord().equals("else")){
@@ -208,16 +228,22 @@ public class CompilationEngine {
             CompileStatements();
             tokenizer.advance();//}
         }
+        writer.WriteLabel("IF_FALSE"+Integer.toString(ifLabelIndex));
+        ifLabelIndex++;
     }
     
     public void CompileExpression(){
+        char operator;
         CompileTerm();
         while(isOp()){
-            switch(tokenizer.symbol()){
+            operator = tokenizer.symbol();
+            tokenizer.advance();
+            CompileTerm();
+            switch(operator){
                 case '+'-> writer.writeArithmetic("add"); 
                 case '-'-> writer.writeArithmetic("sub");
-//                case '*'-> writer.writeArithmetic("add");
-//                case '/'-> writer.writeArithmetic("add"); 
+                case '*'-> writer.writeArithmetic("mult");
+                case '/'-> writer.writeArithmetic("div"); 
                 case '&'-> writer.writeArithmetic("and");
                 case '|'-> writer.writeArithmetic("or"); 
                 case '<'-> writer.writeArithmetic("lt"); 
@@ -225,40 +251,81 @@ public class CompilationEngine {
                 case '='-> writer.writeArithmetic("eq");
                 default -> {}
             }
-            tokenizer.advance(); // operator
-            CompileTerm();
+
         }
     }
     
     public void CompileTerm(){
-//        symTable.IndexOf("x");
         switch (tokenizer.symbol()) {
             case '(' -> {
                 tokenizer.advance(); // (
                 CompileExpression();
                 tokenizer.advance(); // )
             }
-            case '~', '-' -> {
-                tokenizer.advance(); // ~ | -
+            case '~' -> {
+                tokenizer.advance(); // ~ 
+                CompileTerm();
+                writer.writeArithmetic("not");
+
+            }
+            case '-' ->{
+                tokenizer.advance(); // -
                 CompileTerm();
             }
             default -> {
-                String name = tokenizer.identifier();
-                System.out.println(name);
-                if(tokenizer.tokenType().equals("IDENTIFIER")){
-                    writer.writePush("this", symTable.IndexOf(name));
-                }
-                //push this (i) gets called where i is the location where indentifier x is on stack
-                tokenizer.advance(); // identifier
-                switch (tokenizer.symbol()) {
-                    case '(', '.' -> CompileSubroutineCall(name);
-                    case '[' -> {
-                        tokenizer.advance();// [
-                        CompileExpression();
-                        tokenizer.advance(); // ]
+                switch(tokenizer.tokenType()){
+                    case "INT_CONST" -> {
+                        writer.writePush("constant", tokenizer.intVal());
+                        tokenizer.advance();
                     }
-                    default -> {
-                    }
+                    case "KEYWORD"-> {
+                        switch (tokenizer.keyWord()) {
+                            case "this" -> writer.writePush("pointer", 0);
+                            case "true" -> {
+                                writer.writePush("constant", 0);
+                                writer.writeArithmetic("not");
+                            }
+                            case "false" -> writer.writePush("constant", 0);
+                            default -> {
+                            }
+                        }
+                        tokenizer.advance();
+                        }
+                    case "IDENTIFIER" -> { 
+                        String name = tokenizer.identifier();
+                        tokenizer.advance(); 
+                        switch (tokenizer.symbol()) {
+                            case '(', '.' -> CompileSubroutineCall(name);
+                            case '[' -> {
+                                String segment;
+                                String kind = symTable.KindOf(name);
+                                if (kind.equals("var"))
+                                    segment = "local";
+                                else if (kind.equals("field"))
+                                    segment = "this";
+                                else
+                                    segment = symTable.KindOf(name);
+                                writer.writePush(segment, symTable.IndexOf(name));
+                                tokenizer.advance();// [
+                                CompileExpression();
+                                tokenizer.advance(); // ]
+                                writer.writeArithmetic("add");
+                                writer.writePop("pointer", 1);
+                            }
+                            default -> {
+                                String segment;
+                                String kind = symTable.KindOf(name);
+                                if (kind.equals("var"))
+                                    segment = "local";
+                                else if (kind.equals("field"))
+                                    segment = "this";
+                                else
+                                    segment = symTable.KindOf(name);
+                                writer.writePush(segment,symTable.IndexOf(name));       
+                            }
+                        }
+                        }
+                    default ->{}
                 }
             }
         }
@@ -267,15 +334,38 @@ public class CompilationEngine {
     public void CompileSubroutineCall(String name){
         int nArgs = 0;
         String subIdentifier;
-        boolean isMethod = false;
+        boolean isMethod = false; 
+        boolean isConstructor = false;
+        boolean isClassInstance = false;
         if(tokenizer.symbol() == '.'){
             tokenizer.advance(); //.
-            if(symTable.TypeOf(name) != null) {name = symTable.TypeOf(name);isMethod = true;}
+            if(tokenizer.identifier().equals("new")){isConstructor = true;}
+            if(symTable.TypeOf(name) != null) {
+                String segment;
+                String kind = symTable.KindOf(name);
+                if (kind.equals("var"))
+                    segment = "local";
+                else if (kind.equals("field"))
+                    segment = "this";
+                else
+                    segment = symTable.KindOf(name);
+                writer.writePush(segment, symTable.IndexOf(name));
+                isClassInstance = true;
+                nArgs++;
+                name = symTable.TypeOf(name);
+                }
             subIdentifier = name + "." + tokenizer.identifier();
             tokenizer.advance(); //subRoutineName
         }else{
             subIdentifier = className + "." + name;
             isMethod = true;
+        }
+        if(isMethod){
+            //though this should be this instead of pointer may need change
+            //also another saying it should be local
+            //pointer? local? this?
+            writer.writePush("pointer", 0);
+            nArgs++;
         }
         tokenizer.advance(); //(
         if(tokenizer.symbol() != ')'){
@@ -288,15 +378,9 @@ public class CompilationEngine {
             }
         }
         tokenizer.advance();// )
-        //sometin funky here pointer or local
-        if(isMethod){writer.writePush("pointer", 0);nArgs++;}
         writer.WriteCall(subIdentifier, nArgs);
-//        if(isMethod) 
+        if(!isConstructor) 
             writer.writePop("temp", 0);
-//        else writer.writePop("local", 0);
-//        for(i<0; i <nArgs; i++){
-//            writer.writePop("temp", nArgs);
-//        }
     }
     
 
@@ -315,4 +399,5 @@ public class CompilationEngine {
             default -> false;
         };
     }
+    
 }
