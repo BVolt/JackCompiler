@@ -1,0 +1,6 @@
+com\mycompany\jackcompiler\SymbolTable.class
+com\mycompany\jackcompiler\JackCompiler.class
+com\mycompany\jackcompiler\JackTokenizer.class
+com\mycompany\jackcompiler\VMWriter.class
+com\mycompany\jackcompiler\CompilationEngine.class
+com\mycompany\jackcompiler\Identifier.class
