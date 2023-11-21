@@ -4,7 +4,7 @@ import java.io.*;
 public class JackCompiler {
 
     public static void main(String[] args) {
-        String path = (args.length == 0) ? "tests/Square": args[0];
+        String path = (args.length == 0) ? "tests/Pong": args[0];
         if(path.split("\\.").length<=1){
             File dir = new File(path);
             File[] directory = dir.listFiles();
