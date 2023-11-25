@@ -312,12 +312,11 @@ public class CompilationEngine {
                             case '[' -> {
                                 String segment;
                                 String kind = symTable.KindOf(name);
-                                if (kind.equals("var"))
-                                    segment = "local";
-                                else if (kind.equals("field"))
-                                    segment = "this";
-                                else
-                                    segment = symTable.KindOf(name);
+                                segment = switch (kind) {
+                                case "var" -> "local";
+                                case "field" -> "this";
+                                default -> symTable.KindOf(name);
+                            };
                                 tokenizer.advance();// [
                                 CompileExpression();
                                 tokenizer.advance(); // ]
